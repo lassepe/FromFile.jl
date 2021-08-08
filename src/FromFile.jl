@@ -1,6 +1,6 @@
 module FromFile
 
-export @from
+export @from, @reexport
 
 macro from(path::String, ex::Expr)
     esc(from_m(__module__, __source__, path, ex))
@@ -58,6 +58,32 @@ function from_m(m::Module, s::LineNumberNode, path::String, root_ex::Expr)
         end
         return loading
     end...)
+end
+
+macro reexport(ex::Expr)
+    reexport(__module__, ex)
+end
+
+function reexport(m::Module, from_ex::Expr)
+    from_ex.head === :macrocall && from_ex.args[1] === Symbol("@from") || error("The reexport macro can only be applied to a imports via the @from macro.")
+    import_block_ex = macroexpand(m, from_ex)
+
+    import_block_ex.head === :block || error("Expecting a block.")
+    export_expr = Expr(:export)
+
+    # unpack all the import statements and construct an export expression with all the imported
+    # symbols.
+    for import_ex in import_block_ex.args
+        import_ex.head === :import || error("Expecting only import statements in the block.")
+        for symbol_import_ex in import_ex.args
+            symbol_import_ex.head === :(.) || error("Only individual imports handled so far")
+            sym = last(symbol_import_ex.args)
+            push!(export_expr.args, sym)
+        end
+    end
+
+    # augment the final expression: first import, then export all the symbol
+    return Expr(:block, import_block_ex, export_expr)
 end
 
 end
